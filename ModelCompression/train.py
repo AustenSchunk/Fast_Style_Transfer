@@ -2,6 +2,7 @@ import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
 warnings.simplefilter(action='ignore', category=DeprecationWarning)
 import tensorflow as tf
+from tensorflow.contrib.model_pruning.python import pruning
 import transform
 
 
@@ -11,6 +12,8 @@ import vgg
 import numpy as np
 import scipy
 import cv2
+import sys
+import functools
 
 
 DATA_PATH = '/Users/AustenSchunk/Desktop/College/Fall2018/CS4476/StyleTransfer/data/train'
@@ -25,6 +28,9 @@ TOTAL_VAR_WEIGHT = 0.05
 
 BATCH_SIZE = 2
 NUM_EPOCHS = 2
+
+LEARNING_RATE=1e-3
+DATA_SIZE = 1000
 
 
 def generate_image(path):
@@ -63,14 +69,14 @@ def get_style_features(style_path=STYLE_PATH):
     return style_features
 
 def get_batch(batch_shape, sess, res):
-	batch = np.zeros(shape=batch_shape)
-	for i in range(batch_shape[0]):
-		batch[i] = sess.run(res)
-	return batch
+    batch = np.zeros(shape=batch_shape)
+    for i in range(batch_shape[0]):
+        batch[i] = sess.run(res)
+    return batch
 
 def get_content_loss(X_content, X_pre):
 
-	content_features = {}
+    content_features = {}
     content_net = vgg.net(X_pre)
     content_features[CONTENT_LAYER] = content_net[CONTENT_LAYER]
 
@@ -86,9 +92,9 @@ def get_content_loss(X_content, X_pre):
 
     return content_loss, net, preds
 
-def get_style_loss(net):
+def get_style_loss(net, style_features):
 
-	style_losses = []
+    style_losses = []
     for style_layer in STYLE_LAYERS:
         layer = net[style_layer]
         bs, height, width, filters = map(lambda i:i.value,layer.get_shape())
@@ -102,12 +108,12 @@ def get_style_loss(net):
     style_loss = STYLE_WEIGHT * functools.reduce(tf.add, style_losses) / BATCH_SIZE
     return style_loss
 
-def get_tv_loss(preds):
-	tv_y_size = _tensor_size(preds[:,1:,:,:])
+def get_tv_loss(preds, batch_shape):
+    tv_y_size = _tensor_size(preds[:,1:,:,:])
     tv_x_size = _tensor_size(preds[:,:,1:,:])
     y_tv = tf.nn.l2_loss(preds[:,1:,:,:] - preds[:,:batch_shape[1]-1,:,:])
     x_tv = tf.nn.l2_loss(preds[:,:,1:,:] - preds[:,:,:batch_shape[2]-1,:])
-    tv_loss = tv_weight * 2 * (x_tv/tv_x_size + y_tv/tv_y_size) / BATCH_SIZE
+    tv_loss = 2 * (x_tv/tv_x_size + y_tv/tv_y_size) / BATCH_SIZE
 
     return TOTAL_VAR_WEIGHT * tv_loss
 
@@ -115,59 +121,100 @@ def _tensor_size(tensor):
     from operator import mul
     return functools.reduce(mul, (d.value for d in tensor.get_shape()[1:]), 1)
 
+def initialize_pruning_op(global_step):
+    # Parse pruning hyperparameters
+    pruning_hparams = pruning.get_pruning_hparams()
+
+    # Create a pruning object using the pruning hyperparameters
+    pruning_obj = pruning.Pruning(pruning_hparams, global_step=global_step)
+
+    # Use the pruning_obj to add ops to the training graph to update the masks
+    # The conditional_mask_update_op will update the masks only when the
+    # training step is in [begin_pruning_step, end_pruning_step] specified in
+    # the pruning spec proto
+    mask_update_op = pruning_obj.conditional_mask_update_op()
+
+    # Use the pruning_obj to add summaries to the graph to track the sparsity
+    # of each of the layers
+    pruning_obj.add_pruning_summaries()
+
+    return mask_update_op
+
 def train():
     
     # gram matrices for specified style layers
     style_features = get_style_features()
 
     batch_shape = (BATCH_SIZE, 256, 256, 3)
-    res = generate_image(DATA_PATH)
-    init = (tf.global_variables_initializer(), tf.local_variables_initializer())
-
-
 
     # Actual training session
-    with tf.Graph().as_default(), tf.Session() as sess:
-    	global_step = tf.contrib.framework.get_or_create_global_step()
+    with tf.Graph().as_default():
 
-    	X_content = tf.placeholder(tf.float32, shape=batch_shape, name="X_content")
+        res = generate_image(DATA_PATH)
+        init = (tf.global_variables_initializer(), tf.local_variables_initializer())
+
+
+        # Creating global step needed for pruning op
+        global_step = tf.train.get_or_create_global_step()
+
+        # Setting up input
+        X_content = tf.placeholder(tf.float32, shape=batch_shape, name="X_content")
         X_pre = vgg.preprocess(X_content)
 
+        # Computing all loss values
         content_loss, net, preds = get_content_loss(X_content, X_pre)
-        style_loss = get_style_loss(net)
-        tv_loss = get_tv_loss(preds)
+        style_loss = get_style_loss(net, style_features)
+        tv_loss = get_tv_loss(preds, batch_shape)
         loss = content_loss + style_loss + tv_loss
 
-        
+        # Training operation
+        train_op = tf.train.AdamOptimizer(LEARNING_RATE).minimize(loss, global_step=global_step)
+
+        # Pruning operation
+        pruning_op = initialize_pruning_op(global_step)
+
+
+        merged = tf.summary.merge_all()
+        writer = tf.summary.FileWriter('logs/')
+
+
+        with tf.train.MonitoredTrainingSession() as mon_sess:
+            print("STARTING TRAINING")
+            # initializing image generation
+            mon_sess.run(init)
+            coord = tf.train.Coordinator()
+            threads = tf.train.start_queue_runners(coord=coord, sess=mon_sess)
+
+
+            for epoch in range(NUM_EPOCHS):
+
+                epoch_step = 0
+                while epoch_step * BATCH_SIZE < DATA_SIZE:
+
+                    # new input batch
+                    X_batch = get_batch(batch_shape, mon_sess, res)
+                    feed_dict = {X_content : X_batch}
+
+                    to_get = [style_loss, content_loss, tv_loss, loss]
+
+                    _, tup, summ = mon_sess.run([train_op, to_get, merged], feed_dict=feed_dict)
+                    writer.add_summary(summ, global_step= (epoch + 1) * epoch_step)
+
+
+                    mon_sess.run(pruning_op)
+                    epoch_step+=1
+
+                    _style_loss,_content_loss,_tv_loss,_loss = tup
+
+                    # if epoch_step % 10 == 0:
+                    sys.stdout.write("Step {0} w/Total Loss: {1}\r".format((epoch + 1) * epoch_step, _loss))
+                    sys.stdout.flush()
 
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-        # initializer image generation
-        sess.run(init)
-        coord = tf.train.Coordinator()
-        threads = tf.train.start_queue_runners(coord=coord)
-
-        # getting images
-        for epoch in range(NUM_EPOCHS):
-            tensor = get_batch(batch_shape, sess, res)
-            print(tensor.shape)
-
-        coord.request_stop()
-        coord.join(threads)
+            coord.request_stop()
+            coord.join(threads)
 
 
 
