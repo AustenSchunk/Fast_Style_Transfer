@@ -4,7 +4,6 @@ import numpy as np
 import re
 
 
-
 TOWER_NAME = 'tower'
 WEIGHTS_INIT_STDEV = .1
 BATCH_SIZE = (1, 256, 256, 3)
