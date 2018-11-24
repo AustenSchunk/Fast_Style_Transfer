@@ -16,21 +16,23 @@ import sys
 import functools
 
 
-DATA_PATH = '/Users/AustenSchunk/Desktop/College/Fall2018/CS4476/StyleTransfer/data/train'
-STYLE_PATH = '/Users/AustenSchunk/Desktop/College/Fall2018/CS4476/StyleTransfer/data/style/lionStyle.jpg'
+
+DATA_PATH = '/home/aschunk3/Desktop/ComputerVisionaries/train_data'
+STYLE_PATH = '/home/aschunk3/Desktop/ComputerVisionaries/styles/lionStyle.jpg'
+SAVE_DIR = 'checkpoints/fns.ckpt'
 
 STYLE_LAYERS = ('relu1_1', 'relu2_1', 'relu3_1', 'relu4_1', 'relu5_1')
 CONTENT_LAYER = 'relu4_2'
 
-CONTENT_WEIGHT = 1.0
-STYLE_WEIGHT = 1.0
-TOTAL_VAR_WEIGHT = 0.05
+CONTENT_WEIGHT = 7.5e0
+STYLE_WEIGHT = 1e2
+TOTAL_VAR_WEIGHT = 2e2
 
 BATCH_SIZE = 2
 NUM_EPOCHS = 2
 
 LEARNING_RATE=1e-3
-DATA_SIZE = 1000
+DATA_SIZE = 123403
 
 
 def generate_image(path):
@@ -140,8 +142,15 @@ def initialize_pruning_op(global_step):
 
     return mask_update_op
 
+def get_session(sess):
+    session = sess
+    while type(session).__name__ != 'Session':
+        #pylint: disable=W0212
+        session = session._sess
+    return session
+
 def train():
-    
+
     # gram matrices for specified style layers
     style_features = get_style_features()
 
@@ -152,7 +161,6 @@ def train():
 
         res = generate_image(DATA_PATH)
         init = (tf.global_variables_initializer(), tf.local_variables_initializer())
-
 
         # Creating global step needed for pruning op
         global_step = tf.train.get_or_create_global_step()
@@ -173,23 +181,31 @@ def train():
         # Pruning operation
         pruning_op = initialize_pruning_op(global_step)
 
-
         merged = tf.summary.merge_all()
         writer = tf.summary.FileWriter('logs/')
 
 
-        with tf.train.MonitoredTrainingSession() as mon_sess:
+        saver_hook = tf.train.CheckpointSaverHook(
+            checkpoint_dir='checkpoint/',
+            save_secs=None,
+            save_steps=5000,
+            saver=tf.train.Saver(),
+            checkpoint_basename='model.ckpt',
+            scaffold=None)
+
+
+        with tf.train.MonitoredTrainingSession(hooks=[saver_hook]) as mon_sess:
             print("STARTING TRAINING")
             # initializing image generation
             mon_sess.run(init)
             coord = tf.train.Coordinator()
             threads = tf.train.start_queue_runners(coord=coord, sess=mon_sess)
 
-
             for epoch in range(NUM_EPOCHS):
 
                 epoch_step = 0
                 while epoch_step * BATCH_SIZE < DATA_SIZE:
+                    glob_step = (epoch + 1) * epoch_step
 
                     # new input batch
                     X_batch = get_batch(batch_shape, mon_sess, res)
@@ -198,24 +214,27 @@ def train():
                     to_get = [style_loss, content_loss, tv_loss, loss]
 
                     _, tup, summ = mon_sess.run([train_op, to_get, merged], feed_dict=feed_dict)
-                    writer.add_summary(summ, global_step= (epoch + 1) * epoch_step)
-
 
                     mon_sess.run(pruning_op)
-                    epoch_step+=1
+
+                    if epoch_step % 500 == 0:
+                        writer.add_summary(summ, global_step= glob_step // 500)
+                        # test_feed_dict = {
+                        #    X_content:X_batch
+                        # }
+                        
+                        # sess = get_session(mon_sess)
+                        # tup = sess.run(to_get, feed_dict = test_feed_dict)
+                        # res = saver.save(sess, SAVE_DIR)
 
                     _style_loss,_content_loss,_tv_loss,_loss = tup
 
-                    # if epoch_step % 10 == 0:
-                    sys.stdout.write("Step {0} w/Total Loss: {1}\r".format((epoch + 1) * epoch_step, _loss))
+                    sys.stdout.write("Step {0} w/Total Loss: {1}\r".format(glob_step, _loss))
                     sys.stdout.flush()
-
-
-
+                    epoch_step+=1
 
             coord.request_stop()
             coord.join(threads)
-
 
 
 if __name__ == '__main__':

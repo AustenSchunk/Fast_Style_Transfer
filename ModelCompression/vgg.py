@@ -6,7 +6,7 @@ import scipy.io
 import pdb
 
 MEAN_PIXEL = np.array([ 123.68 ,  116.779,  103.939])
-MODEL_PATH = '/Users/AustenSchunk/Desktop/College/Fall2018/CS4476/StyleTransfer/imagenet-vgg-verydeep-19.mat'
+MODEL_PATH = '/home/aschunk3/Desktop/ComputerVisionaries/imagenet-vgg-verydeep-19.mat'
 
 
 
