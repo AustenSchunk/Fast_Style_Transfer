@@ -3,7 +3,7 @@ warnings.simplefilter(action='ignore', category=FutureWarning)
 warnings.simplefilter(action='ignore', category=DeprecationWarning)
 import tensorflow as tf
 from tensorflow.contrib.model_pruning.python import pruning
-import transform
+import pruned_transform as transform
 
 
 warnings.resetwarnings()
@@ -25,7 +25,7 @@ STYLE_LAYERS = ('relu1_1', 'relu2_1', 'relu3_1', 'relu4_1', 'relu5_1')
 CONTENT_LAYER = 'relu4_2'
 
 CONTENT_WEIGHT = 7.5e0
-STYLE_WEIGHT = 1e2
+STYLE_WEIGHT = 6e1
 TOTAL_VAR_WEIGHT = 2e2
 
 BATCH_SIZE = 2
@@ -202,8 +202,9 @@ def train():
             threads = tf.train.start_queue_runners(coord=coord, sess=mon_sess)
 
             for epoch in range(NUM_EPOCHS):
-
-                epoch_step = 0
+                
+                print("Epoch: {0}".format(epoch))
+                epoch_step = 1
                 while epoch_step * BATCH_SIZE < DATA_SIZE:
                     glob_step = (epoch + 1) * epoch_step
 
@@ -219,13 +220,6 @@ def train():
 
                     if epoch_step % 500 == 0:
                         writer.add_summary(summ, global_step= glob_step // 500)
-                        # test_feed_dict = {
-                        #    X_content:X_batch
-                        # }
-                        
-                        # sess = get_session(mon_sess)
-                        # tup = sess.run(to_get, feed_dict = test_feed_dict)
-                        # res = saver.save(sess, SAVE_DIR)
 
                     _style_loss,_content_loss,_tv_loss,_loss = tup
 

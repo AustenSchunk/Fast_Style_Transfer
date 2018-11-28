@@ -7,7 +7,7 @@ import scipy
 from scipy import misc
 import matplotlib.pyplot as plt
 import cv2
-
+import unittest
 
 CHECKPOINT_DIR = 'checkpoint/Model1'
 OUTPUT_NODE_NAME = 'add_5'
@@ -21,13 +21,15 @@ INPUT_SHAPE = [1, None, None, 3]
 
 import time
 
+sparse_conv2d_m = tf.load_op_library('/home/aschunk3/tensorflow/bazel-bin/tensorflow/core/user_ops/sparse_conv2d.so')
 
-def strip():
-    strip_pruning_vars.strip_pruning_vars(CHECKPOINT_DIR,OUTPUT_NODE_NAME, OUTPUT_DIR, OUTPUT_NAME)
+
+# def strip():
+#     strip_pruning_vars.strip_pruning_vars(CHECKPOINT_DIR,OUTPUT_NODE_NAME, OUTPUT_DIR, OUTPUT_NAME)
 
 
 def load_graph():
-    filename = OUTPUT_DIR + '/' + OUTPUT_NAME
+    filename = 'saved_model' + '/' + OUTPUT_NAME
 
     with tf.gfile.GFile(filename, "rb") as f:
         graph_def = tf.GraphDef()
@@ -42,21 +44,30 @@ def load_graph():
         )
         return graph
 
-
+def convert_sparse_weights(sparse_tensor, indices, values, shapes):
+    indices.append(sparse_tensor.indices)
+    values.append(sparse_tensor.values)
+    shapes.append(sparse_tensor.dense_shape)
 
 def save_sparse_weights():
 
     graph = load_graph()
 
-    weights = {}
+    indices = []
+    values = []
+    shapes = []
     for op in graph.get_operations():
         if 'masked_weight' in op.name:
             dense = graph.get_tensor_by_name(op.name + ":0")
-            sparse = tf.contrib.layers.dense_to_sparse(dense)
-            weights[op.name] = sparse
-            print(type(dense))
+            sparse_tensor = tf.contrib.layers.dense_to_sparse(dense)
+            convert_sparse_weights(sparse_tensor, indices, values, shapes)
+            # weights[op.name] = sparse
+            # print(type(dense))
 
-
+    # return indices, values, shapes
+    with tf.Session(graph=graph) as sess:
+        res = sess.run([indices, values, shapes])
+        np.save('sparse_weights.npy', res)
     # print(type(weights[0]))
     # saver = tf.train.Saver(weights)
     # with tf.Session() as sess:
@@ -83,7 +94,86 @@ def inference():
     #     print("RUNTIME: {0}".format(time.time() - pruned_time))
     #     scipy.misc.imshow(output[0])
 
+class InnerProductOpTest(unittest.TestCase):
+
+    
+
+    # def test_sparse_conv2d(self):
+    #     # config = tf.ConfigProto(
+    #     #     device_count = {'GPU': 0}
+    #     # )
+    #     with tf.Session('') as sess:
+    #         x = tf.placeholder(tf.float32, shape=(1, 228, 228, 3))
+    #         conv = sparse_conv2d_m.sparse_conv2d(x, [[0, 0]], [1.0], dense_shape=[11, 11, 3, 96], strides=[4, 4])
+
+    #         self.assertListEqual([1, 55, 55, 96], conv.get_shape().as_list())
+
+    # def test_sparse_conv2d_simple(self):
+    #     # config = tf.ConfigProto(
+    #     #     device_count = {'GPU': 0}
+    #     # )
+    #     with tf.Session('') as sess:
+    #         x = tf.placeholder(tf.float32, shape=(1, 11, 11, 3))
+    #         conv = sparse_conv2d_m.sparse_conv2d(x, [[0, 0]], [1.0], dense_shape=[11, 11, 3, 96], strides=[4, 4])
+
+    #         inp = np.zeros((1, 11, 11, 3))
+    #         out = sess.run(conv, feed_dict={x: inp})
+
+    #         self.assertEqual(0, np.count_nonzero(out))
+
+    #         inp[0][1][1][0] = 1
+    #         out = sess.run(conv, feed_dict={x: inp})
+    #         self.assertEqual(0, np.count_nonzero(out))
+
+    #         inp[0][0][0][0] = 1
+    #         out = sess.run(conv, feed_dict={x: inp})
+    #         self.assertEqual(1, np.count_nonzero(out))
+
+    def test_style_sparse(self):
+
+        im = scipy.misc.imread('test_img/content/001.jpg')
+        input_im = np.zeros(shape=((1,) + im.shape), dtype=float)
+        input_im[0] = im
+
+        indices, values, shapes = np.load('sparse_weights.npy')
+
+        ind = indices[0]
+        val = values[0]
+        shape = shapes[0].tolist()
+
+        config = tf.ConfigProto(
+            device_count = {'GPU': 0}
+        )
+        with tf.Session(config=config) as sess:
+            x = tf.placeholder(tf.float32, shape=input_im.shape)
+
+
+            sparse_conv = sparse_conv2d_m.sparse_conv2d(x, ind, val, shape, strides=[1, 1])
+
+            dense_weights = np.zeros(shape=shape)
+            for i in range(ind.shape[0]):
+                dense_weights[tuple(ind[i])] = val[i]
+
+            dense_conv = tf.nn.conv2d(x, dense_weights, [1,1,1,1], padding='VALID')
+
+
+            sparse_start = time.time()
+            sparse_out = sess.run(sparse_conv, feed_dict={x:input_im})
+            print('Sparse Compute Time: {0}'.format(time.time() - sparse_start))
+
+            dense_start = time.time()
+            dense_out = sess.run(dense_conv, feed_dict={x:input_im})
+            print('Dense Compute Time: {0}'.format(time.time() - dense_start))
+
+            assert dense_out.shape == sparse_out.shape
+            print('Total Difference: {0}'.format(np.sum(dense_out - sparse_out)))
+
+
+
+
+
 
 if __name__ == '__main__':
-    save_sparse_weights()
+    unittest.main()
     # strip()
+    # save_sparse_weights()
