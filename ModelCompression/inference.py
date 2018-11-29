@@ -79,6 +79,20 @@ def dense_net(inputs, weights, shifts, scales):
     preds = tf.nn.tanh(conv_t3) * 150 + 255./2
     return preds
 
+def sparse_net(inputs, weights, shifts, scales):
+    conv1 = sparse_conv(inputs, weights[0], 1, shifts[0], scales[0])
+    conv2 = sparse_conv(conv1,  weights[1], 2, shifts[1], scales[1])
+    conv3 = sparse_conv(conv2,  weights[2], 2, shifts[2], scales[2])
+    resid1 = sparse_residual_block(conv3, weights[3:5], shifts[3:5], scales[3:5])
+    resid2 = sparse_residual_block(resid1, weights[5:7], shifts[5:7], scales[5:7])
+    resid3 = sparse_residual_block(resid2, weights[7:9], shifts[7:9], scales[7:9])
+    resid4 = sparse_residual_block(resid3, weights[9:11], shifts[9:11], scales[9:11])
+    resid5 = sparse_residual_block(resid4, weights[11:13], shifts[11:13], scales[11:13])
+    conv_t1 = conv_transpose(resid5, weights[13], 2, shifts[13], scales[13])
+    conv_t2 = conv_transpose(conv_t1, weights[14], 2, shifts[14], scales[14])
+    conv_t3 = sparse_conv(conv_t2, weights[15], 1, shifts[15], scales[15], relu=False)
+    preds = tf.nn.tanh(conv_t3) * 150 + 255./2
+    return preds
 
 
 
@@ -112,6 +126,24 @@ def inference(conv_type='dense'):
             plt.imshow(res[0])
             plt.show()
             # print(res.shape)
+    else:
+        g1 = tf.Graph()
+
+        with g1.as_default() as g:
+            x_input = tf.placeholder(tf.float32, shape=input_im.shape)
+            raw_preds = sparse_net(x_input/255.0, weights, shifts, scales)
+            preds = tf.clip_by_value(raw_preds, 0, 255)
+
+        with tf.Session(graph=g1) as sess:
+            # dense_start = time.time()
+            res = sess.run(preds, feed_dict={x_input : input_im})
+            res = res.astype(np.uint8)
+            print(np.max(res))
+            print(np.min(res))
+
+            plt.imshow(res[0])
+            plt.show()
+
 
 
 
