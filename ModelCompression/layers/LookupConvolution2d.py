@@ -8,12 +8,14 @@ from tensorflow.python.layers import base
 from tensorflow.python.layers.convolutional import Conv2D
 from tensorflow.python.ops import nn_ops
 from tensorflow.python.layers import utils
+import sys
 
 
 try:
     sparse_conv2d_m = tf.load_op_library('/home/aschunk3/tensorflow/bazel-bin/tensorflow/core/user_ops/sparse_conv2d.so')
 except Exception as e:
-    logging.warning(str(e))
+    print(str(e))
+    sys.exit(0)
 
 dense_layers = {}
 dense_weights = {}
