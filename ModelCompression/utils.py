@@ -54,25 +54,27 @@ def save_sparse_weights():
 
     graph = load_graph()
 
-    indices = []
-    values = []
-    shapes = []
+    weights = []
+    shifts = []
+    scales = []
     for op in graph.get_operations():
+
+
         if 'masked_weight' in op.name:
             dense = graph.get_tensor_by_name(op.name + ":0")
-            sparse_tensor = tf.contrib.layers.dense_to_sparse(dense)
-            convert_sparse_weights(sparse_tensor, indices, values, shapes)
-            # weights[op.name] = sparse
-            # print(type(dense))
+            weights.append(dense)
+        if 'Variable' in op.name and not 'read' in op.name:
+            if 'Variable_1' in op.name:
+                scale = graph.get_tensor_by_name(op.name + ":0")
+                scales.append(scale)
+            else:
+                shift = graph.get_tensor_by_name(op.name + ":0")
+                shifts.append(shift)
+    variables = [weights, shifts, scales]
 
-    # return indices, values, shapes
     with tf.Session(graph=graph) as sess:
-        res = sess.run([indices, values, shapes])
-        np.save('sparse_weights.npy', res)
-    # print(type(weights[0]))
-    # saver = tf.train.Saver(weights)
-    # with tf.Session() as sess:
-    #     saver.save(sess,OUTPUT_DIR)
+        res = sess.run([variables])
+        np.save('weights/50-sparse.npy', res)
 
 def inference():
     pass
@@ -224,7 +226,7 @@ class SparseConvTest(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    unittest.main()
+    save_sparse_weights()
     # strip()
     # save_sparse_weights()
 
