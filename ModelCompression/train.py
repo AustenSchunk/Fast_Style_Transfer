@@ -3,7 +3,7 @@ warnings.simplefilter(action='ignore', category=FutureWarning)
 warnings.simplefilter(action='ignore', category=DeprecationWarning)
 import tensorflow as tf
 from tensorflow.contrib.model_pruning.python import pruning
-import pruned_transform as transform
+import transform
 
 
 warnings.resetwarnings()
@@ -25,14 +25,17 @@ STYLE_LAYERS = ('relu1_1', 'relu2_1', 'relu3_1', 'relu4_1', 'relu5_1')
 CONTENT_LAYER = 'relu4_2'
 
 CONTENT_WEIGHT = 7.5e0
-STYLE_WEIGHT = 6e1
+STYLE_WEIGHT = 3e1
 TOTAL_VAR_WEIGHT = 2e2
 
 BATCH_SIZE = 2
 NUM_EPOCHS = 2
 
-LEARNING_RATE=1e-3
+LEARNING_RATE=7e-4
 DATA_SIZE = 123403
+
+TARGET_SPARSITY = 0.97
+SPARSITY_END = 500
 
 
 def generate_image(path):
@@ -125,8 +128,10 @@ def _tensor_size(tensor):
 
 def initialize_pruning_op(global_step):
     # Parse pruning hyperparameters
-    pruning_hparams = pruning.get_pruning_hparams()
+    override_params = {'target_sparsity' : TARGET_SPARSITY, 'sparsity_function_end_step':SPARSITY_END}
+    pruning_hparams = pruning.get_pruning_hparams().override_from_dict(override_params)
 
+    
     # Create a pruning object using the pruning hyperparameters
     pruning_obj = pruning.Pruning(pruning_hparams, global_step=global_step)
 
@@ -174,6 +179,11 @@ def train():
         style_loss = get_style_loss(net, style_features)
         tv_loss = get_tv_loss(preds, batch_shape)
         loss = content_loss + style_loss + tv_loss
+
+        tf.summary.scalar('Content Loss', content_loss)
+        tf.summary.scalar('Style Loss', style_loss)
+        tf.summary.scalar('TV Loss', tv_loss)
+        tf.summary.scalar('Total Loss', loss)
 
         # Training operation
         train_op = tf.train.AdamOptimizer(LEARNING_RATE).minimize(loss, global_step=global_step)

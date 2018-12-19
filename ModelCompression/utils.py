@@ -12,8 +12,8 @@ import unittest
 
 CHECKPOINT_DIR = 'checkpoint/Model1'
 OUTPUT_NODE_NAME = 'add_5'
-OUTPUT_DIR = 'checkpoint/Model1/PruneStrip'
-OUTPUT_NAME = 'pruned_model1.pb'
+OUTPUT_DIR = 'saved_model'
+OUTPUT_NAME = 'pruned_model5.pb'
 
 
 CONTENT_DIR = 'test_img/content/'
@@ -25,8 +25,8 @@ import time
 # sparse_conv2d_m = tf.load_op_library('/home/aschunk3/tensorflow/bazel-bin/tensorflow/core/user_ops/sparse_conv2d.so')
 
 
-# def strip():
-#     strip_pruning_vars.strip_pruning_vars(CHECKPOINT_DIR,OUTPUT_NODE_NAME, OUTPUT_DIR, OUTPUT_NAME)
+def strip():
+    strip_pruning_vars.strip_pruning_vars(CHECKPOINT_DIR,OUTPUT_NODE_NAME, OUTPUT_DIR, OUTPUT_NAME)
 
 
 def load_graph():
@@ -72,9 +72,12 @@ def save_sparse_weights():
                 shifts.append(shift)
     variables = [weights, shifts, scales]
 
-    with tf.Session(graph=graph) as sess:
+    config = tf.ConfigProto(
+        device_count = {'GPU': 0}
+    )
+    with tf.Session(graph=graph, config=config) as sess:
         res = sess.run([variables])
-        np.save('weights/50-sparse.npy', res)
+        np.save('weights/97-sparse.npy', res)
 
 def inference():
     pass
@@ -226,9 +229,8 @@ class SparseConvTest(unittest.TestCase):
 
 
 if __name__ == '__main__':
+    strip()
     save_sparse_weights()
-    # strip()
-    # save_sparse_weights()
 
 
 
