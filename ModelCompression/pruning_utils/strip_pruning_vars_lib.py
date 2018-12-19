@@ -32,6 +32,7 @@ from tensorflow.python.framework import ops
 from tensorflow.python.framework import tensor_util
 from tensorflow.python.platform import tf_logging as logging
 from tensorflow.python.training import saver as saver_lib
+import tensorflow as tf
 
 
 def _node_name(tensor_name):
@@ -52,11 +53,14 @@ def _tensor_name(node_name):
 
 def _get_masked_weights(input_graph_def):
   """Extracts masked_weights from the graph as a dict of {var_name:ndarray}."""
+  config = tf.ConfigProto(
+        device_count = {'GPU': 0}
+    )
   input_graph = ops.Graph()
   with input_graph.as_default():
     importer.import_graph_def(input_graph_def, name='')
 
-    with session.Session(graph=input_graph) as sess:
+    with session.Session(graph=input_graph, config=config) as sess:
       masked_weights_dict = {}
       for node in input_graph_def.node:
         if 'masked_weight' in node.name:
@@ -126,11 +130,14 @@ def graph_def_from_checkpoint(checkpoint_dir, output_node_names):
 
   saver_for_restore = saver_lib.import_meta_graph(
       checkpoint_path + '.meta', clear_devices=True)
-  with session.Session() as sess:
+  config = tf.ConfigProto(
+        device_count = {'GPU': 0}
+    )
+  with session.Session(config=config) as sess:
     saver_for_restore.restore(sess, checkpoint_path)
     graph_def = ops.get_default_graph().as_graph_def()
 
-    [print(n.name) for n in graph_def.node]
+    # [print(n.name) for n in graph_def.node]
 
     output_graph_def = graph_util.convert_variables_to_constants(
         sess, graph_def, output_node_names)
