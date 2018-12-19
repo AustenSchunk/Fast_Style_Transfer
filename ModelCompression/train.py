@@ -1,3 +1,7 @@
+"""
+Script for training style transfer network to have sparse weights
+"""
+
 import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
 warnings.simplefilter(action='ignore', category=DeprecationWarning)
@@ -16,7 +20,7 @@ import sys
 import functools
 
 
-
+# Global Variables
 DATA_PATH = '/home/aschunk3/Desktop/ComputerVisionaries/train_data'
 STYLE_PATH = '/home/aschunk3/Desktop/ComputerVisionaries/styles/lionStyle.jpg'
 SAVE_DIR = 'checkpoints/fns.ckpt'
@@ -40,7 +44,14 @@ SPARSITY_END = 500
 
 def generate_image(path):
     """
-    # reads a single images from a given path in a tf session to be called later
+    Reads and resizes a single image
+
+    Args:
+        path: path to all images
+
+    Returns: 
+        single randomly selected image
+
     """
     filenames = tf.train.string_input_producer(
     tf.train.match_filenames_once(path + "/*.jpg"))
@@ -52,8 +63,14 @@ def generate_image(path):
 
 def get_style_features(style_path=STYLE_PATH):
     """
-    Generates the gram matrices for given layers in vgg net
-    copied from lengstrom's implementation
+    Generates the gram matrices for given layers in vgg net.
+    Copied from lengstrom's implementation
+
+    Args:
+        style_path: path to the desired style image
+
+    Returns:
+        gram matrix / style features for a desired style image
     """
     
     style_target = scipy.ndimage.imread(style_path)
@@ -74,12 +91,33 @@ def get_style_features(style_path=STYLE_PATH):
     return style_features
 
 def get_batch(batch_shape, sess, res):
+    """
+    Gets a single batch of images
+
+    Args:
+        batch_shape: shape of 4D batch tensor
+        sess: current tf.Session
+        res: variable to be run in sess to get an image
+
+    Returns:
+        batch of images
+    """
     batch = np.zeros(shape=batch_shape)
     for i in range(batch_shape[0]):
         batch[i] = sess.run(res)
     return batch
 
 def get_content_loss(X_content, X_pre):
+    """
+    Calculatest the loss between generated and content images
+
+    Args:
+        X_content: content image to be transformed
+        X_pre: actual content image
+
+    Returns:
+        loss between content and generated images
+    """
 
     content_features = {}
     content_net = vgg.net(X_pre)
@@ -98,6 +136,16 @@ def get_content_loss(X_content, X_pre):
     return content_loss, net, preds
 
 def get_style_loss(net, style_features):
+    """
+    Calculates loss between generated and style features
+
+    Args:
+        net: outputs of image transformation network
+        style_features: features of style image
+
+    Returns:
+        Loss between generated and style features
+    """
 
     style_losses = []
     for style_layer in STYLE_LAYERS:
@@ -114,6 +162,16 @@ def get_style_loss(net, style_features):
     return style_loss
 
 def get_tv_loss(preds, batch_shape):
+    """
+    Calculates Total Variational loss for denoising
+
+    Args:
+        preds: image transformed by stylization network
+        batch_shape: shape of current batch
+
+    Returns:
+        Total variational loss
+    """
     tv_y_size = _tensor_size(preds[:,1:,:,:])
     tv_x_size = _tensor_size(preds[:,:,1:,:])
     y_tv = tf.nn.l2_loss(preds[:,1:,:,:] - preds[:,:batch_shape[1]-1,:,:])
@@ -123,10 +181,29 @@ def get_tv_loss(preds, batch_shape):
     return TOTAL_VAR_WEIGHT * tv_loss
 
 def _tensor_size(tensor):
+    """
+    Calculates number of elements in given tensor
+
+    Args:
+        tensor: tensor to be used in size calucation
+
+    Returns:
+        number of elements in given tensor 
+    """
     from operator import mul
     return functools.reduce(mul, (d.value for d in tensor.get_shape()[1:]), 1)
 
 def initialize_pruning_op(global_step):
+    """
+    Initializes all variables needed for weight pruning and actual pruning op
+
+    Args:
+        global_step: global step parameter to be used in weighted decay threshold pruning
+
+    Returns:
+        pruning op
+    """
+
     # Parse pruning hyperparameters
     override_params = {'target_sparsity' : TARGET_SPARSITY, 'sparsity_function_end_step':SPARSITY_END}
     pruning_hparams = pruning.get_pruning_hparams().override_from_dict(override_params)
@@ -147,14 +224,10 @@ def initialize_pruning_op(global_step):
 
     return mask_update_op
 
-def get_session(sess):
-    session = sess
-    while type(session).__name__ != 'Session':
-        #pylint: disable=W0212
-        session = session._sess
-    return session
-
 def train():
+    """
+    Training method for a stylization network with pruned weights
+    """
 
     # gram matrices for specified style layers
     style_features = get_style_features()
@@ -240,9 +313,8 @@ def train():
             coord.request_stop()
             coord.join(threads)
 
-
-if __name__ == '__main__':
-    train()
+# if __name__ == '__main__':
+#     train()
 
 
      
